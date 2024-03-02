@@ -6,6 +6,8 @@
 // ------------------------------------------------------------------------------
 
 use std::io;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 fn main() {    // TODO: Implement the main function
     // If the user provides the -l or --loop flag followed by a number
@@ -38,11 +40,30 @@ fn shuffle_data() {
     // Restore the system time to the current time
 } 
 
-// TODO: Implement this function
 fn consolidate(dir: &str) -> Result<(), io::Error> {
+    let path = Path::new(dir);
+    if !path.is_dir() {
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, "Not a directory"));
+    }
+
     // For each subdirectory in the directory
-    //   Move all files to the parent directory
-    //   Delete the subdirectory
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            // Move all files to the parent directory
+            for file in fs::read_dir(path.clone())? {
+                let file = file?;
+                let file_path = file.path();
+                let file_name = file_path.file_name().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "No filename"))?;
+                let dest_path = PathBuf::from(dir).join(file_name);
+                fs::rename(file_path, dest_path)?;
+            }
+            // Delete the subdirectory
+            fs::remove_dir(path)?;
+        }
+    }
+
     Ok(())
 }
 
