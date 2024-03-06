@@ -214,17 +214,16 @@ fn shuffle_data(dir: &str) -> Result<(), Error> {
 
 fn change_time(timestamp: u64) {
 
-    #[cfg(target_os = "windows")] {
+    if cfg!(target_os = "windows") {
         Command::new("powershell")
             .arg("-Command")
             .arg("Set-Date")
             .arg(format!("(Get-Date 01.01.1970).AddSeconds({})", timestamp))
             .output()
             .expect("Failed to execute command");
-    } 
-    #[cfg(target_os = "linux")] {
+    } else {
         let output = Command::new("date")
-            .arg(format!("-s '@{}'", timestamp))
+            .arg(format!("-s @{}", timestamp))
             .output()
             .expect("Failed to execute command");
 
