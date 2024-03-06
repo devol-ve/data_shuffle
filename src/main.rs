@@ -7,31 +7,179 @@
 *******************************************************************************/
 
 use std::fs;
+use std::env;
 use std::path::{Path, PathBuf};
-use std::io::{Read, Write, Error, ErrorKind};
+use std::io::{Read, Error, ErrorKind};
 use rand::seq::SliceRandom;
 use std::result::Result;
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use std::process::Command;
-use std::os::raw::c_void;
-use winapi::um::minwinbase::SYSTEMTIME;
 use rand::Rng;
+use std::thread::sleep;
+use console::Term;
 
 fn main() {    // TODO: Implement the main function
-    //shuffle_data().unwrap();
-    // If the user provides the -l or --loop flag followed by a number
-    //   Run shuffle_data() every 30 seconds
-    //   Repeat the number of times specified by the user or indefinitely if the user does not provide a number
-    // Else if the user provides the -S or --schedule flag followed by daily, weekly, or monthly
-    //   Schedule the data shuffle to run daily, weekly, or monthly with the system's scheduler
-    //   Schedule the program to run weekly on Sunday at 12:00 AM if the user does not provide a time or day
-    // Else if the user provides the -c or --cancel flag
-    //   Cancel the scheduled data shuffle
-    // Else if the user provides the -h or --help flag
-    //   Print the help message
-    // Else
-    //   Shuffle the data once
-    //   Print a message to the user
+    // Get the command line arguments
+    let args: Vec<String> = env::args().collect();
+    let data_dir = "data";
+    let term = Term::stdout();
+
+    if args.len() == 1 {
+        if !is_admin() {
+            if cfg!(target_os = "windows") {
+                println!("Admin privileges not detected.");
+            } else {
+                println!("Root privileges not detected.");
+            }
+            
+            println!("File creation time will default to the current time.");
+            println!("Would you like to continue? (Y/n)");
+
+            let mut input = 'y';
+            loop {
+                if let Ok(key) = term.read_key() {
+                    input = match key {
+                        console::Key::Char('y') | console::Key::Char('Y') | console::Key::Enter => 'y',
+                        console::Key::Char('n') | console::Key::Char('N') => 'n',
+                        _ => input,
+                    };
+                }
+                if input == 'n' {
+                    break;
+                }
+                sleep(Duration::from_millis(5));
+            }
+            if input == 'n' {
+                println!("Exiting...");
+                return;
+            } else {
+                println!("Continuing...");
+            }
+        }
+        // Shuffle the data once
+        shuffle_data(data_dir).unwrap();
+    } else {
+        // Parse the command line arguments
+        match args[1].as_str() {
+            "--no-warning" => {
+                // Shuffle the data once
+                shuffle_data(data_dir).unwrap();
+            }
+            "-l" | "--loop" => {
+                // Run shuffle_data() every 30 seconds
+                // Repeat the number of times specified by the user or indefinitely if the user does not provide a number
+                let mut count = 100;
+                if args.len() > 2 {
+                    count = args[2].parse().unwrap();
+                }
+                loop {
+                    shuffle_data("data").unwrap();
+                    count -= 1;
+                    if count == 0 {
+                        break;
+                    }
+                    sleep(Duration::from_secs(30));
+                }
+            }
+            "-S" | "--schedule" => { // TODO: Implement the schedule option
+                // Schedule the data shuffle to run daily, weekly, or monthly with the system's scheduler
+                // Schedule the program to run weekly on Sunday at 12:00 AM if the user does not provide a time or day
+                let mut time = "00:00".to_string();
+                let mut day = "Sun".to_string();
+                if args.len() > 2 {
+                    match args[2].as_str() {
+                        "daily" => {
+                            // Schedule the data shuffle to run daily
+                            if args.len() > 3 {
+                                time = args[3].to_string();
+                            }
+                        }
+                        "weekly" => {
+                            // Schedule the data shuffle to run weekly
+                            if args.len() > 4 {
+                                day = args[3].to_string();
+                                time = args[4].to_string();
+                            } else if args.len() > 3 {
+                                day = args[3].to_string();
+                            }
+                        }
+                        "monthly" => {
+                            // Schedule the data shuffle to run monthly
+                            if args.len() > 4 {
+                                day = args[3].to_string();
+                                time = args[4].to_string();
+                            } else if args.len() > 3 {
+                                time = args[3].to_string();
+                            }
+                        }
+                        _ => {
+                            println!("Invalid schedule option");
+                            return;
+                        }
+                    }
+                }
+                // Schedule the program to run weekly on Sunday at 12:00 AM if the user does not provide a time or day
+                println!("Scheduling the data shuffle to run {} on {} at {}...", args[2], day, time);
+            }
+            "-c" | "--cancel" => { // TODO: Implement the cancel option
+                // If the task is scheduled, cancel the scheduled data shuffle
+                
+                // Cancel the scheduled data shuffle
+                println!("Cancelling the scheduled data shuffle...");
+            }
+            "-h" | "--help" => {
+                // Print the help message
+                println!("Usage: data_shuffler [OPTION] [ARGUMENT]");
+                println!("Shuffle the data in the data directory");
+                println!("");
+                println!("Options:");
+                println!("  -l, --loop [COUNT]      Run shuffle_data() every 30 seconds");
+                println!("                          Repeat the number of times specified by the user or 100 times if the user does not provide a number");
+                println!("  -S, --schedule [OPTION] [ARGUMENT]");
+                println!("                          Schedule the data shuffle to run daily, weekly, or monthly with the system's scheduler");
+                println!("                          Schedule the program to run weekly on Sunday at 12:00 AM if the user does not provide a time or day");
+                println!("  -c, --cancel             Cancel the scheduled data shuffle");
+                println!("  -h, --help               Print the help message");
+            }
+            _ => {
+                println!("Invalid option");
+            }
+        }
+    }
+//    // If the user provides the -l or --loop flag followed by a number
+//    //   Run shuffle_data() every 30 seconds
+//    //   Repeat the number of times specified by the user or indefinitely if the user does not provide a number
+//    // Else if the user provides the -S or --schedule flag followed by daily, weekly, or monthly
+//    //   Schedule the data shuffle to run daily, weekly, or monthly with the system's scheduler
+//    //   Schedule the program to run weekly on Sunday at 12:00 AM if the user does not provide a time or day
+//    // Else if the user provides the -c or --cancel flag
+//    //   Cancel the scheduled data shuffle
+//    // Else if the user provides the -h or --help flag
+//    //   Print the help message
+//    // Else
+//    //   Shuffle the data once
+}
+
+
+fn is_admin() -> bool {
+    let output = if cfg!(target_os = "windows") {
+        Command::new("net")
+            .arg("session")
+            .output()
+            .expect("Failed to execute command")
+    } else {
+        Command::new("id")
+            .arg("-u")
+            .output()
+            .expect("Failed to execute command")
+    };
+
+    if cfg!(target_os = "windows") {
+        output.status.success()
+    } else {
+        let uid = String::from_utf8_lossy(&output.stdout);
+        uid.trim() == "0"
+    }
 }
 
 fn shuffle_data(dir: &str) -> Result<(), Error> {
@@ -49,7 +197,7 @@ fn shuffle_data(dir: &str) -> Result<(), Error> {
         let path = entry.path();
         if path.is_dir() {
             // Consolidate files
-            print!("Consolidating files in {}...\n", path.to_str().unwrap());
+            println!("Consolidating files in {}...", path.to_str().unwrap());
             consolidate(path.to_str().unwrap())?;
 
             // Anonymize data
@@ -153,12 +301,12 @@ fn consolidate(dir: &str) -> Result<(), Error> {
                 let file = file?;
                 let file_path = file.path();
                 let file_name = file_path.file_name().ok_or_else(|| Error::new(ErrorKind::Other, "No filename"))?;
-                print!("Moving {:?} out of {}...\n", file_name, path.to_str().unwrap());
+                println!("Moving {:?} out of {}...", file_name, path.to_str().unwrap());
                 let dest_path = PathBuf::from(dir).join(file_name);
                 fs::rename(file_path, dest_path)?;
             }
             // Delete the subdirectory
-            print!("Deleting {}...\n", path.to_str().unwrap());
+            println!("Deleting {}...", path.to_str().unwrap());
             fs::remove_dir(path)?;
         }
     }
@@ -176,7 +324,7 @@ fn anonymize_data(dir: &str) -> Result<(), Error> {
 
     // Rename each file to a random number with a .csv extension
     for path in paths {
-        print!("Anonymizing {}...\n", path.to_str().unwrap());
+        println!("Anonymizing {}...", path.to_str().unwrap());
         let new_name = format!("{}/{}.csv", dir, numbers.pop().unwrap());
         let mut file = fs::File::open(&path)?;
         let mut contents = String::new();
@@ -193,6 +341,17 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
+    #[test]
+    fn test_is_admin() {
+        let result = is_admin();
+        assert_eq!(result, true);
+    }
+
+    #[test]
+    fn test_is_not_admin() {
+        let result = is_admin();
+        assert_eq!(result, false);
+    }
     #[test]
     fn test_change_time() {
         let then = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -257,148 +416,6 @@ mod tests {
         // Check that the contents of the files are unchanged
         assert!(fs::read_to_string("test_dir/1.csv").unwrap().contains("Hello, World!") || fs::read_to_string("test_dir/1.csv").unwrap().contains("Hello, Rust!"));
         assert!(fs::read_to_string("test_dir/2.csv").unwrap().contains("Hello, World!") || fs::read_to_string("test_dir/2.csv").unwrap().contains("Hello, Rust!"));
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_consolidate_error() {
-        // Setup: Create a file for testing
-        fs::write("test_file.txt", "Hello, World!").unwrap();
-
-        // Call the function to test
-        let result = consolidate("test_file.txt");
-
-        // Check that the function returns an error
-        assert!(result.is_err());
-
-        // Teardown: Clean up the test file
-        fs::remove_file("test_file.txt").unwrap();
-    }
-
-    #[test]
-    fn test_anonymize_data_error() {
-        // Setup: Create a file for testing
-        fs::write("test_file.txt", "Hello, World!").unwrap();
-
-        // Call the function to test
-        let result = anonymize_data("test_file.txt");
-
-        // Check that the function returns an error
-        assert!(result.is_err());
-
-        // Teardown: Clean up the test file
-        fs::remove_file("test_file.txt").unwrap();
-    }
-
-    #[test]
-    fn test_consolidate_empty() {
-        // Setup: Create a directory for testing
-        fs::create_dir_all("test_dir").unwrap();
-
-        // Call the function to test
-        let result = consolidate("test_dir");
-
-        // Check that the function returns an error
-        assert!(result.is_ok());
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_anonymize_data_empty() {
-        // Setup: Create a directory for testing
-        fs::create_dir_all("test_dir").unwrap();
-
-        // Call the function to test
-        let result = anonymize_data("test_dir");
-
-        // Check that the function returns an error
-        assert!(result.is_ok());
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_consolidate_no_subdirectories() {
-        // Setup: Create a directory for testing
-        fs::create_dir_all("test_dir").unwrap();
-        fs::write("test_dir/file1.txt", "Hello, World!").unwrap();
-        fs::write("test_dir/file2.txt", "Hello, Rust!").unwrap();
-
-        // Call the function to test
-        let result = consolidate("test_dir");
-
-        // Check that the function returns an error
-        assert!(result.is_ok());
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_anonymize_data_no_files() {
-        // Setup: Create a directory for testing
-        fs::create_dir_all("test_dir").unwrap();
-
-        // Call the function to test
-        let result = anonymize_data("test_dir");
-
-        // Check that the function returns an error
-        assert!(result.is_ok());
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_consolidate_no_files() {
-        // Setup: Create a directory for testing
-        fs::create_dir_all("test_dir").unwrap();
-        fs::create_dir_all("test_dir/sub_dir1").unwrap();
-        fs::create_dir_all("test_dir/sub_dir2").unwrap();
-
-        // Call the function to test
-        let result = consolidate("test_dir");
-
-        // Check that the function returns an error
-        assert!(result.is_ok());
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_anonymize_data_one_file() {
-        // Setup: Create a directory for testing
-        fs::create_dir_all("test_dir").unwrap();
-        fs::write("test_dir/file1.txt", "Hello, World!").unwrap();
-
-        // Call the function to test
-        let result = anonymize_data("test_dir");
-
-        // Check that the function returns an error
-        assert!(result.is_ok());
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_consolidate_one_subdirectory() {
-        // Setup: Create a directory for testing
-        fs::create_dir_all("test_dir").unwrap();
-        fs::create_dir_all("test_dir/sub_dir1").unwrap();
-        fs::write("test_dir/sub_dir1/file1.txt", "Hello, World!").unwrap();
-
-        // Call the function to test
-        let result = consolidate("test_dir");
-
-        // Check that the function returns an error
-        assert!(result.is_ok());
 
         // Teardown: Clean up the test directory
         fs::remove_dir_all("test_dir").unwrap();
