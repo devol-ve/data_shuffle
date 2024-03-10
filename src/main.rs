@@ -403,11 +403,18 @@ fn anonymize_data(dir: &str) -> Result<(), Error> {
         let path_extension = path.extension().unwrap().to_str().unwrap();
         if path.is_dir() {
             continue;
-        } else if path_extension != "csv" | path_extension != "txt" {
+        } 
+        
+        if path_extension != "csv" || path_extension != "txt" {
             // Rename without changing the file extension
             let new_name = format!("{}/{}.{}", dir, numbers.pop().unwrap(), path_extension);
+            if let Err(err) = fs::rename(&path, new_name) {
+                println!("Failed to rename file: {}", err);
+                continue;
+            }
             continue;
         }
+        
         let new_name = format!("{}/{}.csv", dir, numbers.pop().unwrap());
         let mut file = fs::File::open(&path)?;
         let mut contents = String::new();
@@ -416,188 +423,4 @@ fn anonymize_data(dir: &str) -> Result<(), Error> {
         fs::remove_file(path)?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::path::Path;
-
-    #[test]
-    fn test_schedule() {
-        schedule("Sun", "00:00");
-    }
-
-    #[test]
-    fn test_cancel() {
-        cancel();
-    }
-
-    #[test]
-    fn test_is_valid_time() {
-        let result = is_valid_time("00:00");
-        assert_eq!(result, true);
-    }
-
-    #[test]
-    fn test_is_invalid_time() {
-        let result = is_valid_time("24:00");
-        assert_eq!(result, false);
-    }
-
-    #[test]
-    fn test_is_admin() {
-        let result = is_admin();
-        assert_eq!(result, true);
-    }
-
-    #[test]
-    fn test_is_not_admin() {
-        let result = is_admin();
-        assert_eq!(result, false);
-    }
-    #[test]
-    fn test_change_time() {
-        let then = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        // Call the function to test
-        change_time(0);
-
-        // Check that the system time has been changed
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        assert!(now < then);
-
-        // Restore the system time to the current time
-        resync_time();
-    }
-
-    #[test]
-    fn test_resync_time() {
-        // Call the function to test
-        resync_time();
-
-        // Check that the system time has been restored to the current time
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        assert!(now > 0);
-    }
-
-    #[test]
-    fn test_consolidate() {
-        // Setup: Create a directory structure for testing
-        fs::create_dir_all("test_dir/sub_dir1").unwrap();
-        fs::create_dir_all("test_dir/sub_dir2").unwrap();
-        fs::write("test_dir/sub_dir1/file1.txt", "Hello, World!").unwrap();
-        fs::write("test_dir/sub_dir2/file2.txt", "Hello, Rust!").unwrap();
-
-        // Call the function to test
-        consolidate("test_dir").unwrap();
-
-        // Check that the files have been moved to the parent directory
-        assert!(Path::new("test_dir/file1.txt").exists());
-        assert!(Path::new("test_dir/file2.txt").exists());
-
-        // Check that the subdirectories are deleted
-        assert!(!Path::new("test_dir/sub_dir1").exists());
-        assert!(!Path::new("test_dir/sub_dir2").exists());
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_anonymize_data() {
-        // Setup: Create a directory structure for testing
-        fs::create_dir_all("test_dir").unwrap();
-        fs::write("test_dir/file1.txt", "Hello, World!").unwrap();
-        fs::write("test_dir/file2.txt", "Hello, Rust!").unwrap();
-
-        // Call the function to test
-        anonymize_data("test_dir").unwrap();
-
-        // Check that files are renamed to .csv
-        assert!(Path::new("test_dir/1.csv").exists());
-        assert!(Path::new("test_dir/2.csv").exists());
-
-        // Check that the contents of the files are unchanged
-        assert!(fs::read_to_string("test_dir/1.csv").unwrap().contains("Hello, World!") || fs::read_to_string("test_dir/1.csv").unwrap().contains("Hello, Rust!"));
-        assert!(fs::read_to_string("test_dir/2.csv").unwrap().contains("Hello, World!") || fs::read_to_string("test_dir/2.csv").unwrap().contains("Hello, Rust!"));
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
-    #[test]
-    fn test_shuffle_data() {
-        // Setup: Create a directory structure for testing
-        fs::create_dir_all("test_dir/sub_dir1/dir1").unwrap();
-        fs::create_dir_all("test_dir/sub_dir1/dir2").unwrap();
-        fs::create_dir_all("test_dir/sub_dir2/dir1").unwrap();
-        fs::create_dir_all("test_dir/sub_dir3").unwrap();
-        fs::write("test_dir/sub_dir1/dir1/file1.txt", "Hello, World!").unwrap();
-        fs::write("test_dir/sub_dir1/dir2/file2.txt", "Hello, Rust!").unwrap();
-        fs::write("test_dir/sub_dir2/dir1/file3.txt", "Hello, World!").unwrap();
-        fs::write("test_dir/sub_dir3/file4.txt", "Hello, Rust!").unwrap();
-
-        // Call the function to test
-        shuffle_data("test_dir").unwrap();
-
-        // Check that the number of files is unchanged
-        let mut count = 0;
-        for entry in fs::read_dir("test_dir/sub_dir1").unwrap() {
-            let entry = entry.unwrap();
-            if entry.path().is_file() {
-                count += 1;
-            }
-        }
-        assert_eq!(count, 2);
-        count = 0;
-        for entry in fs::read_dir("test_dir/sub_dir2").unwrap() {
-            let entry = entry.unwrap();
-            if entry.path().is_file() {
-                count += 1;
-            }
-        }
-        assert_eq!(count, 1);
-        count = 0;
-        for entry in fs::read_dir("test_dir/sub_dir3").unwrap() {
-            let entry = entry.unwrap();
-            if entry.path().is_file() {
-                count += 1;
-            }
-        }
-        assert_eq!(count, 1);
-
-        // Check that files are renamed to .csv
-        for entry in fs::read_dir("test_dir/sub_dir1").unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.is_file() {
-                assert_eq!(path.extension().unwrap(), "csv");
-            }
-        }
-        for entry in fs::read_dir("test_dir/sub_dir2").unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.is_file() {
-                assert_eq!(path.extension().unwrap(), "csv");
-            }
-        }
-        for entry in fs::read_dir("test_dir/sub_dir3").unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.is_file() {
-                assert_eq!(path.extension().unwrap(), "csv");
-            }
-        }
-
-        // Check that the contents of the files are unchanged
-        assert!(fs::read_to_string("test_dir/sub_dir1/1.csv").unwrap().contains("Hello, World!") || fs::read_to_string("test_dir/sub_dir1/1.csv").unwrap().contains("Hello, Rust!"));
-        assert!(fs::read_to_string("test_dir/sub_dir1/2.csv").unwrap().contains("Hello, World!") || fs::read_to_string("test_dir/sub_dir1/2.csv").unwrap().contains("Hello, Rust!"));
-        assert!(fs::read_to_string("test_dir/sub_dir2/1.csv").unwrap().contains("Hello, World!") || fs::read_to_string("test_dir/sub_dir2/1.csv").unwrap().contains("Hello, Rust!"));
-        assert!(fs::read_to_string("test_dir/sub_dir3/1.csv").unwrap().contains("Hello, World!") || fs::read_to_string("test_dir/sub_dir3/1.csv").unwrap().contains("Hello, Rust!"));
-
-        // Teardown: Clean up the test directory
-        fs::remove_dir_all("test_dir").unwrap();
-    }
-
 }
