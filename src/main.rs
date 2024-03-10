@@ -405,7 +405,7 @@ fn anonymize_data(dir: &str) -> Result<(), Error> {
             continue;
         } 
         
-        if path_extension != "csv" || path_extension != "txt" {
+        if path_extension != "csv" && path_extension != "txt" {
             // Rename without changing the file extension
             let new_name = format!("{}/{}.{}", dir, numbers.pop().unwrap(), path_extension);
             if let Err(err) = fs::rename(&path, new_name) {
