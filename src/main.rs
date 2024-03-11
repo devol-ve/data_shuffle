@@ -10,41 +10,55 @@ use std::fs;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::io::{Read, Error, ErrorKind};
-use rand::seq::SliceRandom;
+use console::{Key, Term};
+use rand::{seq::SliceRandom, Rng, prelude::ThreadRng};
 use std::result::Result;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
-use std::process::Command;
-use rand::Rng;
+use std::time::{SystemTime, UNIX_EPOCH, Instant, Duration};
+use std::process::{Command, Output};
 use std::thread::sleep;
-use console::Term;
 
 fn main() {
+    // Return error message if the program is run on macOS
+    #[cfg(target_os = "macos")] {
+        println!("This program is not currently supported on macOS.");
+        return;
+    }
+    
     // Get the command line arguments
     let args: Vec<String> = env::args().collect();
-    let data_dir = "data";
-    let term = Term::stdout();
+    let data_dir: &str = "data";
+    let term: Term = Term::stdout();
 
     if args.len() == 1 {
         if !is_admin() {
-            if cfg!(target_os = "windows") {
+            #[cfg(target_os = "windows")] {
                 println!("Admin privileges not detected.");
-            } else {
+            }
+            #[cfg(target_os = "linux")] {
                 println!("Root privileges not detected.");
             }
             
             println!("File creation time will default to the current time.");
             println!("Would you like to continue? (Y/n)");
 
-            let mut input = 'y';
+            let mut input: char = ' ';
+            let start_time: Instant = Instant::now();
+            let max_time: Duration = Duration::from_secs(10);
             loop {
+                if start_time.elapsed() > max_time {
+                    input = 'y';
+                    break;
+                }
+
                 if let Ok(key) = term.read_key() {
                     input = match key {
-                        console::Key::Char('y') | console::Key::Char('Y') | console::Key::Enter => 'y',
-                        console::Key::Char('n') | console::Key::Char('N') => 'n',
+                        Key::Char('y') | Key::Char('Y') | Key::Enter => 'y',
+                        Key::Char('n') | Key::Char('N') => 'n',
                         _ => input,
                     };
                 }
-                if input == 'n' {
+
+                if input == 'n' || input == 'y' {
                     break;
                 }
                 sleep(Duration::from_millis(5));
@@ -52,41 +66,41 @@ fn main() {
             if input == 'n' {
                 println!("Exiting...");
                 return;
-            } else {
-                println!("Continuing...");
             }
+
+            println!("Continuing...");
         }
         // Shuffle the data once
-        shuffle_data(data_dir).unwrap();
+        shuffle_data(data_dir).expect("Failed to shuffle data");
     } else {
         // Parse the command line arguments
         match args[1].as_str() {
             "--no-warning" => {
                 // Shuffle the data once
-                shuffle_data(data_dir).unwrap();
+                shuffle_data(data_dir).expect("Failed to shuffle data");
             }
             "-l" | "--loop" => {
                 // Run shuffle_data() every 30 seconds
                 // Repeat the number of times specified by the user or indefinitely if the user does not provide a number
-                let mut count = 100;
+                let mut count: i32 = 100;
                 if args.len() > 2 {
-                    count = args[2].parse().unwrap();
+                    count = args[2].parse().expect("Failed to parse count");
                 }
                 loop {
-                    shuffle_data("data").unwrap();
+                    shuffle_data("data").expect("Failed to shuffle data");
                     count -= 1;
                     // If count is 0 or the user presses Esc, break the loop
-                    if term.read_key().unwrap() == console::Key::Escape || count == 0 {
+                    if term.read_key().expect("Failed to read key") == Key::Escape || count == 0 {
                         break;
                     }
                     sleep(Duration::from_secs(30));
                 }
             }
-            "-S" | "--schedule" => {
+            "-s" | "--schedule" => {
                 // Schedule the data shuffle to run weekly with the system's scheduler
                 // Schedule the program to run weekly on Sunday at 12:00 AM if the user does not provide a time or day
-                let mut time = "00:00".to_string();
-                let mut day = "Sun".to_string();
+                let mut time: String = "00:00".to_string();
+                let mut day: String = "Sun".to_string();
                 if args.len() > 2 {
                     for mut i in 2..args.len() {
                         match args[i].to_lowercase().as_str() {
@@ -155,12 +169,13 @@ fn main() {
                 println!("Shuffle the data in the data directory");
                 println!("");
                 println!("Options:");
-                println!("  -l, --loop [COUNT]                 Run shuffle_data() every 30 seconds and repeat the number of times");
-                println!("                                     specified by the user or 100 times if the user does not provide a number");
-                println!("  -S, --schedule [DAY] [at TIME]");
+                println!("  -l, --loop [<COUNT>]               Shuffle the data every 30 seconds and repeat the specified number");
+                println!("                                     of times or until Esc is pressed");
+                println!("  -s, --schedule [<DAY>] [at <TIME>]");
                 println!("                                     Schedule the data shuffle to run every week with the system's scheduler");
-                println!("                                     Defaults to Sunday at 12:00 AM if the user does not provide a time or day");
+                println!("                                     Defaults to Sunday at 12:00 AM if no time or day is provided");
                 println!("  -c, --cancel                       Cancel the scheduled data shuffle");
+                println!("  --no-warning                       Shuffle the data once without warning message if not run as admin or root");
                 println!("  -h, --help                         Print the help message");
             }
             _ => {
@@ -171,13 +186,13 @@ fn main() {
 }
 
 fn schedule(day: &str, time: &str) {
-    let cwd = env::current_dir().expect("Failed to get current directory").to_str().expect("Failed to convert path to string").to_string();
-    let exe = env::current_exe().expect("Failed to get current executable").to_str().expect("Failed to convert path to string").to_string();
-    let command = if cfg!(target_os = "windows") {
+    let cwd: String = env::current_dir().expect("Failed to get current directory").to_str().expect("Failed to convert path to string").to_string();
+    let exe: String = env::current_exe().expect("Failed to get current executable").to_str().expect("Failed to convert path to string").to_string();
+    let command: String = if cfg!(target_os = "windows") {
         format!("schtasks /create /tn DataShuffler /tr \"cmd /c cd /d {} && {} --no-warning\" /sc weekly /d {} /st {}", cwd, exe, day, time)
     } else {
-        let hrs = time.split(":").collect::<Vec<&str>>()[0];
-        let mins = time.split(":").collect::<Vec<&str>>()[1];
+        let hrs: &str = time.split(":").collect::<Vec<&str>>()[0];
+        let mins: &str = time.split(":").collect::<Vec<&str>>()[1];
         format!("( crontab -l; echo \"{} {} * * {} cd {} && {} --no-warning\"; ) | crontab -", mins, hrs, day, cwd, exe)
     };
     if cfg!(target_os = "windows") {
@@ -194,8 +209,8 @@ fn schedule(day: &str, time: &str) {
 }
 
 fn cancel() {
-    let exe = env::current_exe().expect("Failed to get current executable").to_str().expect("Failed to convert path to string").to_string();
-    let command = if cfg!(target_os = "windows") {
+    let exe: String = env::current_exe().expect("Failed to get current executable").to_str().expect("Failed to convert path to string").to_string();
+    let command: String = if cfg!(target_os = "windows") {
         "schtasks /delete /tn DataShuffler /f".to_string()
     } else {
         format!("crontab -l | grep -v \" {} \" | crontab -", exe)
@@ -215,12 +230,12 @@ fn cancel() {
 }
 
 fn is_valid_time(time: &str) -> bool {
-    let time = time.split(":").collect::<Vec<&str>>();
+    let time: Vec<&str> = time.split(":").collect::<Vec<&str>>();
     if time.len() != 2 {
         return false;
     }
-    let hour = time[0].parse::<u32>().unwrap();
-    let minute = time[1].parse::<u32>().unwrap();
+    let hour: u32 = time[0].parse::<u32>().unwrap();
+    let minute: u32 = time[1].parse::<u32>().unwrap();
     if hour > 23 || minute > 59 {
         return false;
     }
@@ -228,7 +243,7 @@ fn is_valid_time(time: &str) -> bool {
 }
 
 fn is_admin() -> bool {
-    let output = if cfg!(target_os = "windows") {
+    let output: Output = if cfg!(target_os = "windows") {
         Command::new("net")
             .arg("session")
             .output()
@@ -243,7 +258,7 @@ fn is_admin() -> bool {
     if cfg!(target_os = "windows") {
         output.status.success()
     } else {
-        let uid = String::from_utf8_lossy(&output.stdout);
+        let uid: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&output.stdout);
         uid.trim() == "0"
     }
 }
@@ -255,9 +270,9 @@ fn shuffle_data(dir: &str) -> Result<(), Error> {
     }
 
     // Generate a random unix time within the last 10 days
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let ten_days = 10 * 24 * 60 * 60;
-    let random_time = now - rand::thread_rng().gen_range(0..ten_days);
+    let now: u64 = SystemTime::now().duration_since(UNIX_EPOCH).expect("Failed to get system time").as_secs();
+    let ten_days: u64 = 10 * 24 * 60 * 60;
+    let random_time: u64 = now - rand::thread_rng().gen_range(0..ten_days);
 
     // Set the system time to the generated unix time
     if is_admin() {
@@ -266,15 +281,15 @@ fn shuffle_data(dir: &str) -> Result<(), Error> {
 
     // For each directory in data directory
     for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
+        let entry: fs::DirEntry = entry?;
+        let path: PathBuf = entry.path();
         if path.is_dir() {
             // Consolidate files
-            println!("Consolidating files in {}...", path.to_str().unwrap());
-            consolidate(path.to_str().unwrap())?;
+            println!("Consolidating files in {}...", path.to_str().expect("Failed to convert path to str"));
+            consolidate(path.to_str().expect("Failed to convert path to str"))?;
 
             // Anonymize data
-            anonymize_data(path.to_str().unwrap())?;
+            anonymize_data(path.to_str().expect("Failed to convert path to str"))?;
         }
     }
 
@@ -289,22 +304,20 @@ fn shuffle_data(dir: &str) -> Result<(), Error> {
 
 fn change_time(timestamp: u64) {
 
-    if cfg!(target_os = "windows") {
+    #[cfg(target_os = "windows")] {
         Command::new("powershell")
             .arg("-Command")
             .arg("Set-Date")
             .arg(format!("(Get-Date 01.01.1970).AddSeconds({})", timestamp))
             .output()
             .expect("Failed to execute command");
-    } else {
-        let output = Command::new("date")
+    }
+    #[cfg(target_os = "linux")] {
+        Command::new("date")
             .arg(format!("-s @{}", timestamp))
             .output()
             .expect("Failed to execute command");
 
-        println!("status: {}", output.status);
-        println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-        println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
     }
 }
 
@@ -347,40 +360,36 @@ fn resync_time() {
         }
 
         // Resynchronize the system time
-        let output = Command::new("sudo")
+        Command::new("sudo")
             .arg("ntpdate")
             .arg("pool.ntp.org")
             .output()
             .expect("Failed to execute command");
-
-        println!("status: {}", output.status);
-        println!("stdout: {}", String::from_utf8_lossy(&output.stdout));
-        println!("stderr: {}", String::from_utf8_lossy(&output.stderr));
     }
 }
 
 fn consolidate(dir: &str) -> Result<(), Error> {
-    let path = Path::new(dir);
+    let path: &Path = Path::new(dir);
     if !path.is_dir() {
         return Err(Error::new(ErrorKind::Other, format!("Consolidation Error: {:?} is not a directory", dir)));
     }
 
     // For each subdirectory in the directory
     for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let path = entry.path();
+        let entry: fs::DirEntry = entry?;
+        let path: PathBuf = entry.path();
         if path.is_dir() {
             // Move all files to the parent directory
             for file in fs::read_dir(path.clone())? {
-                let file = file?;
-                let file_path = file.path();
-                let file_name = file_path.file_name().ok_or_else(|| Error::new(ErrorKind::Other, "No filename"))?;
-                println!("Moving {:?} out of {}...", file_name, path.to_str().unwrap());
-                let dest_path = PathBuf::from(dir).join(file_name);
+                let file: fs::DirEntry = file?;
+                let file_path: PathBuf = file.path();
+                let file_name: &std::ffi::OsStr = file_path.file_name().ok_or_else(|| Error::new(ErrorKind::Other, "No filename"))?;
+                println!("Moving {:?} out of {}...", file_name, path.to_str().expect("Failed to convert path to str"));
+                let dest_path: PathBuf = PathBuf::from(dir).join(file_name);
                 fs::rename(file_path, dest_path)?;
             }
             // Delete the subdirectory
-            println!("Deleting {}...", path.to_str().unwrap());
+            println!("Deleting {}...", path.to_str().expect("Failed to convert path to str"));
             fs::remove_dir(path)?;
         }
     }
@@ -389,8 +398,8 @@ fn consolidate(dir: &str) -> Result<(), Error> {
 }
 
 fn anonymize_data(dir: &str) -> Result<(), Error> {
-    let paths: Vec<_> = fs::read_dir(dir)?.map(|res| res.map(|e| e.path())).collect::<Result<Vec<_>, Error>>()?;
-    let mut rng = rand::thread_rng();
+    let paths: Vec<_> = fs::read_dir(dir)?.map(|res: Result<fs::DirEntry, Error>| res.map(|e: fs::DirEntry| e.path())).collect::<Result<Vec<_>, Error>>()?;
+    let mut rng: ThreadRng = rand::thread_rng();
 
     // Generate a random number for each file
     let mut numbers: Vec<_> = (1..=paths.len()).collect();
@@ -398,16 +407,16 @@ fn anonymize_data(dir: &str) -> Result<(), Error> {
 
     // Rename each file to a random number with a .csv extension
     for path in paths {
-        println!("Anonymizing {}...", path.to_str().unwrap());
+        println!("Anonymizing {}...", path.to_str().expect("Failed to convert path to str"));
 
-        let path_extension = path.extension().unwrap().to_str().unwrap();
+        let path_extension: &str = path.extension().expect("Failed to get file extension").to_str().expect("Failed to convert OsStr to str");
         if path.is_dir() {
             continue;
         } 
         
         if path_extension != "csv" && path_extension != "txt" {
             // Rename without changing the file extension
-            let new_name = format!("{}/{}.{}", dir, numbers.pop().unwrap(), path_extension);
+            let new_name: String = format!("{}/{}.{}", dir, numbers.pop().expect("Failed to pop number"), path_extension);
             if let Err(err) = fs::rename(&path, new_name) {
                 println!("Failed to rename file: {}", err);
                 continue;
@@ -415,9 +424,9 @@ fn anonymize_data(dir: &str) -> Result<(), Error> {
             continue;
         }
         
-        let new_name = format!("{}/{}.csv", dir, numbers.pop().unwrap());
-        let mut file = fs::File::open(&path)?;
-        let mut contents = String::new();
+        let new_name: String = format!("{}/{}.csv", dir, numbers.pop().expect("Failed to pop number"));
+        let mut file: fs::File = fs::File::open(&path)?;
+        let mut contents: String = String::new();
         file.read_to_string(&mut contents)?;
         fs::write(new_name, contents)?;
         fs::remove_file(path)?;
