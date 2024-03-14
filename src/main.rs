@@ -9,13 +9,14 @@
 use std::fs;
 use std::env;
 use std::path::{Path, PathBuf};
-use std::io::{Read, Error, ErrorKind};
+use std::io::{Read, Write, Error, ErrorKind};
 use console::{Key, Term};
 use rand::{seq::SliceRandom, Rng, prelude::ThreadRng};
 use std::result::Result;
 use std::time::{SystemTime, UNIX_EPOCH, Instant, Duration};
 use std::process::{Command, Output};
 use std::thread::sleep;
+use tempfile::NamedTempFile;
 
 fn main() {
     // Return error message if the program is run on macOS
@@ -378,20 +379,22 @@ fn consolidate(dir: &str) -> Result<(), Error> {
     for entry in fs::read_dir(path)? {
         let entry: fs::DirEntry = entry?;
         let path: PathBuf = entry.path();
-        if path.is_dir() {
-            // Move all files to the parent directory
-            for file in fs::read_dir(path.clone())? {
-                let file: fs::DirEntry = file?;
-                let file_path: PathBuf = file.path();
-                let file_name: &std::ffi::OsStr = file_path.file_name().ok_or_else(|| Error::new(ErrorKind::Other, "No filename"))?;
-                println!("Moving {:?} out of {}...", file_name, path.to_str().expect("Failed to convert path to str"));
-                let dest_path: PathBuf = PathBuf::from(dir).join(file_name);
-                fs::rename(file_path, dest_path)?;
-            }
-            // Delete the subdirectory
-            println!("Deleting {}...", path.to_str().expect("Failed to convert path to str"));
-            fs::remove_dir(path)?;
+        if !path.is_dir() {
+            continue;
         }
+
+        // Move all files to the parent directory
+        for file in fs::read_dir(path.clone())? {
+            let file: fs::DirEntry = file?;
+            let file_path: PathBuf = file.path();
+            let file_name: &std::ffi::OsStr = file_path.file_name().ok_or_else(|| Error::new(ErrorKind::Other, "No filename"))?;
+            println!("Moving {:?} out of {}...", file_name, path.to_str().expect("Failed to convert path to str"));
+            let dest_path: PathBuf = PathBuf::from(dir).join(file_name);
+            fs::rename(file_path, dest_path)?;
+        }
+        // Delete the subdirectory
+        println!("Deleting {}...", path.to_str().expect("Failed to convert path to str"));
+        fs::remove_dir(path)?;
     }
 
     Ok(())
@@ -399,6 +402,7 @@ fn consolidate(dir: &str) -> Result<(), Error> {
 
 fn anonymize_data(dir: &str) -> Result<(), Error> {
     let paths: Vec<_> = fs::read_dir(dir)?.map(|res: Result<fs::DirEntry, Error>| res.map(|e: fs::DirEntry| e.path())).collect::<Result<Vec<_>, Error>>()?;
+    let mut temp_paths: Vec<_> = Vec::new();
     let mut rng: ThreadRng = rand::thread_rng();
 
     // Generate a random number for each file
@@ -407,29 +411,47 @@ fn anonymize_data(dir: &str) -> Result<(), Error> {
 
     // Rename each file to a random number with a .csv extension
     for path in paths {
-        println!("Anonymizing {}...", path.to_str().expect("Failed to convert path to str"));
 
-        let path_extension: &str = path.extension().expect("Failed to get file extension").to_str().expect("Failed to convert OsStr to str");
         if path.is_dir() {
             continue;
         } 
-        
-        if path_extension != "csv" && path_extension != "txt" {
+
+        println!("Anonymizing {}...", path.to_str().expect("Failed to convert path to str"));
+
+        let path_extension: &str = path.extension().expect("Failed to get file extension").to_str().expect("Failed to convert OsStr to str");
+        let mut new_name: String = String::new();
+
+        if path_extension == "txt" {
+            // Rename with a .csv extension
+            new_name = format!("{}/{}.csv", dir, numbers.pop().expect("Failed to pop number"));
+        } else {
             // Rename without changing the file extension
-            let new_name: String = format!("{}/{}.{}", dir, numbers.pop().expect("Failed to pop number"), path_extension);
-            if let Err(err) = fs::rename(&path, new_name) {
-                println!("Failed to rename file: {}", err);
-                continue;
-            }
-            continue;
-        }
-        
-        let new_name: String = format!("{}/{}.csv", dir, numbers.pop().expect("Failed to pop number"));
+            new_name = format!("{}/{}.{}", dir, numbers.pop().expect("Failed to pop number"), path_extension);
+        };
+
+        // Open the file
         let mut file: fs::File = fs::File::open(&path)?;
-        let mut contents: String = String::new();
-        file.read_to_string(&mut contents)?;
-        fs::write(new_name, contents)?;
-        fs::remove_file(path)?;
+        
+        // Read the file contents
+        let mut contents: Vec<u8> = Vec::new();
+        file.read_to_end (&mut contents)?;
+
+        // Write the file contents to a temporary file
+        let mut temp_file = NamedTempFile::new_in(dir)?;
+        temp_file.write_all(&contents)?;
+
+        // Push the temporary file and new name to the temp_paths vector
+        temp_paths.push((temp_file, new_name));
+
+        // Delete the original file
+        fs::remove_file(&path)?;
+
     }
+
+
+    for (temp_file, new_name) in temp_paths {
+        temp_file.persist(new_name)?;
+    }
+
     Ok(())
 }
