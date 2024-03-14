@@ -418,15 +418,7 @@ fn anonymize_data(dir: &str) -> Result<(), Error> {
         println!("Anonymizing {}...", path.to_str().expect("Failed to convert path to str"));
 
         let path_extension: &str = path.extension().expect("Failed to get file extension").to_str().expect("Failed to convert OsStr to str");
-        let mut new_name: String = String::new();
-
-        if path_extension == "txt" {
-            // Rename with a .csv extension
-            new_name = format!("{}/{}.csv", dir, numbers.pop().expect("Failed to pop number"));
-        } else {
-            // Rename without changing the file extension
-            new_name = format!("{}/{}.{}", dir, numbers.pop().expect("Failed to pop number"), path_extension);
-        };
+        let new_name: String = format!("{}/{}.{}", dir, numbers.pop().expect("Failed to pop number"), if path_extension == "txt" { "csv" } else { path_extension });
 
         // Open the file
         let mut file: fs::File = fs::File::open(&path)?;
