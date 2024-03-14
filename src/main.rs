@@ -87,14 +87,13 @@ fn main() {
                 if args.len() > 2 {
                     count = args[2].parse().expect("Failed to parse count");
                 }
-                loop {
-                    shuffle_data("data").expect("Failed to shuffle data");
+                while count > 0 {
                     count -= 1;
-                    // If count is 0 or the user presses Esc, break the loop
-                    if term.read_key().expect("Failed to read key") == Key::Escape || count == 0 {
-                        break;
+                    shuffle_data("data").expect("Failed to shuffle data");
+                    if count > 0 {
+                        println!("Shuffling data in 30 seconds...");
+                        sleep(Duration::from_secs(30));
                     }
-                    sleep(Duration::from_secs(30));
                 }
             }
             "-s" | "--schedule" => {
@@ -103,7 +102,7 @@ fn main() {
                 let mut time: String = "00:00".to_string();
                 let mut day: String = "Sun".to_string();
                 if args.len() > 2 {
-                    for mut i in 2..args.len() {
+                    for mut i in 2..(args.len() - 1) {
                         match args[i].to_lowercase().as_str() {
                             "su" | "sun" | "sunday" => {
                                 // Schedule for Sunday
@@ -156,7 +155,7 @@ fn main() {
                     }
                 }
                 // Schedule the program to run weekly on Sunday at 12:00 AM if the user does not provide a time or day
-                println!("Scheduling the data shuffle to run {} on {} at {}...", args[2], day, time);
+                println!("Scheduling the data shuffle to run every {} at {}...", day, time);
                 schedule(&day, &time);
             }
             "-c" | "--cancel" => {
